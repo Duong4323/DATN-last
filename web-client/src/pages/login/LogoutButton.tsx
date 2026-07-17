@@ -1,11 +1,9 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Button, message } from 'antd';
 import axios from 'axios';
 
 const LogoutButton: React.FC = () => {
   const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
 
   const handleLogout = async () => {
     setLoading(true);
@@ -51,7 +49,7 @@ const LogoutButton: React.FC = () => {
       
       setLoading(false);
       // Chuyển hướng người dùng về trang đăng nhập
-      navigate('/login');
+      window.location.assign('/');
     }
   };
 

@@ -12,22 +12,38 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('users', function (Blueprint $table) {
+
             $table->id();
+
             $table->string('name')->nullable();
+
             $table->string('username')->unique();
-            $table->string('phone_number')->nullable(); // Thêm cột số điện thoại
-            $table->string('address')->nullable();      // Thêm cột địa chỉ
-            
-            // THÊM TRƯỜNG MỚI ĐỂ LƯU ẢNH NGƯỜI DÙNG
-            $table->string('profile_image_url')->nullable(); 
-            
+
+            $table->string('phone_number')->nullable();
+
+            $table->string('address')->nullable();
+
+            // Ảnh đại diện
+            $table->string('profile_image_url')->nullable();
+
             $table->string('password');
-            $table->enum('role', ['admin', 'user'])->default('user');
+
+            // Vai trò
+            $table->enum('role', [
+                'admin',
+                'user',
+                'shop_owner'
+            ])->default('user');
+
             $table->rememberToken();
+
             $table->timestamps();
         });
     }
 
+    /**
+     * Reverse the migrations.
+     */
     public function down(): void
     {
         Schema::dropIfExists('users');

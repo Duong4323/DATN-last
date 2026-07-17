@@ -15,29 +15,36 @@ class CategorySeeder extends Seeder
      */
     public function run()
     {
-        // Danh sách TÊN Categories mẫu
+        // Danh sách loại sản phẩm phù hợp với website thời trang.
         $categoryNames = [
-            'áo', 'quần', 'váy', 'Đồ đông', 'Đồ hè', 'Đồ nam', 'Đồ nữ', 
-            'Đồ ngủ', 'Đồ lót', 'áo khoác', 'Đồ thể thao', 'Đồ công sở',
+            'Áo',
+            'Quần',
+            'Váy/Đầm',
+            'Giày dép',
+            'Túi xách',
+            'Phụ kiện',
+            'Set đồ',
+            'Đồ ngủ',
+            'Đồ lót',
+            'Áo khoác',
+            'Đồ thể thao',
+            'Đồ công sở',
         ];
 
-        $categories = [];
         $id = 1;
 
         foreach ($categoryNames as $name) {
-            $categories[] = [
-                'id' => $id++, 
-                'name' => $name,
-                'slug' => Str::slug($name), 
-                'created_at' => now(), 
-                'updated_at' => now(),
-            ];
+            DB::table('categories')->updateOrInsert(
+                ['id' => $id++],
+                [
+                    'name' => $name,
+                    'slug' => Str::slug($name),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]
+            );
         }
 
-        // --- ĐÃ LOẠI BỎ LỆNH DB::statement('SET FOREIGN_KEY_CHECKS=0;') ---
-        
-        // Chèn dữ liệu cố định (đảm bảo ID từ 1 đến 12)
-        DB::table('categories')->insert($categories);
         DB::statement("SELECT setval('categories_id_seq', (SELECT MAX(id) FROM categories));");
     }
 }

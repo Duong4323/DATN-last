@@ -20,8 +20,8 @@ class LoginController extends Controller
             'name' => 'required|string|max:255',
             'username' => 'required|string|max:255|unique:users',
             'password' => 'required|string|min:6|confirmed', // 'confirmed' yêu cầu trường password_confirmation
-            'phone_number' => 'nullable|string|max:20',
-            'address' => 'nullable|string|max:500',
+            'phone_number' => 'required|string|max:20',
+            'address' => 'required|string|max:500',
         ]);
 
         // 2. Tạo người dùng

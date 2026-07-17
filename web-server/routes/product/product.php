@@ -2,21 +2,46 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\Products\ProductController;
+use App\Http\Controllers\Api\Products\ProductAdvisorController;
+use App\Http\Controllers\Api\Products\ProductReviewController;
+use App\Http\Controllers\Api\Products\CategoryController;
 
-Route::prefix('products')->group(function () {
-    // Lấy danh sách sản phẩm
-    Route::get('/', [ProductController::class, 'index']);
+/*
+|--------------------------------------------------------------------------
+| PUBLIC API
+|--------------------------------------------------------------------------
+| Ai cũng xem được
+|--------------------------------------------------------------------------
+*/
 
-    // Thêm sản phẩm mới
-    Route::post('/', [ProductController::class, 'store']);
+// Danh sách sản phẩm
+Route::get('/products', [ProductController::class, 'index']);
+Route::get('/categories', [CategoryController::class, 'index']);
 
-    // Xem chi tiết sản phẩm theo ID
-    Route::get('/{id}', [ProductController::class, 'show']);
+// Chi tiết sản phẩm
+Route::get('/products/{id}', [ProductController::class, 'show']);
 
-    // Cập nhật thông tin sản phẩm
-    Route::put('/{id}', [ProductController::class, 'update']);
+// Chatbot tu van san pham dua tren catalog hien co
+Route::post('/chatbot/product-advice', [ProductAdvisorController::class, 'advise']);
 
-    // Xóa sản phẩm
-    Route::delete('/{id}', [ProductController::class, 'destroy']);
-    Route::post('/upload-image', [ProductController::class, 'uploadImage']);
+// Danh sách review
+Route::get('/products/{id}/reviews', [
+    ProductReviewController::class,
+    'getProductReviews'
+]);
+
+
+/*
+|--------------------------------------------------------------------------
+| REVIEW API
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware('auth:sanctum')->group(function () {
+
+    // Thêm review
+    Route::post('/products/reviews', [
+        ProductReviewController::class,
+        'store'
+    ]);
 });

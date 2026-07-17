@@ -3,6 +3,7 @@ import { Button, Form, Input, Typography, Alert, message, Card, Skeleton, Upload
 import { LoadingOutlined, UserOutlined } from '@ant-design/icons';
 // 💡 Cập nhật import: Thêm hàm uploadProfileImage vào đây
 import { getUserById, updateUser, uploadProfileImage } from '@/api/users'; 
+import AddressSelector from '@/components/AddressSelector';
 
 const { Title } = Typography;
 
@@ -120,8 +121,8 @@ const UserProfile: React.FC = () => {
     // Tạo payload (giữ nguyên)
     const payload: any = {
         name: values.name,
-        phone_number: values.phone_number || null,
-        address: values.address || null,
+        phone_number: values.phone_number,
+        address: values.address,
         profile_image_url: imageUrl, // <-- GỬI URL MỚI NHẤT
     };
     
@@ -244,16 +245,18 @@ const UserProfile: React.FC = () => {
           <Form.Item 
             label="Số điện thoại"
             name="phone_number" 
+            rules={[{ required: true, message: 'Vui lòng nhập sdt của bạn!' }]}
           >
             <Input size="large" placeholder="Số điện thoại liên hệ" />
           </Form.Item>
 
           {/* Địa chỉ */}
-          <Form.Item 
-            label="Địa chỉ"
-            name="address" 
+          <Form.Item
+            label="Dia chi"
+            name="address"
+            rules={[{ required: true, message: "Vui lòng nhập địa chỉ của bạn!" }]}
           >
-            <Input.TextArea rows={2} placeholder="Địa chỉ chi tiết" />
+            <AddressSelector />
           </Form.Item>
           
           {/* Thay đổi Mật khẩu */}

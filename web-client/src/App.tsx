@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react'; // Import useEffect
 import { BrowserRouter } from 'react-router-dom';
 import AppRouter from './router';
+import ProductAdvisorChatbot from './components/ProductAdvisorChatbot';
 import './index.css';
 
 // Giả định file này chứa hàm để cấu hình Axios gửi token
@@ -30,6 +31,7 @@ const App: React.FC = () => {
   return (
     <BrowserRouter>
       <AppRouter />
+      <ProductAdvisorChatbot />
     </BrowserRouter>
   );
 };

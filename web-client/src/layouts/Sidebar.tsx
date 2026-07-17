@@ -3,8 +3,6 @@ import { Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   Users,
-  Package,
-  BarChart2,
   ChevronLeft,
 } from "lucide-react";
 
@@ -23,9 +21,9 @@ interface SidebarProps {
 const sidebarItems: MenuItem[] = [
   { icon: <LayoutDashboard size={18} />, label: "Trang chính", path: "/admin/dashboard", isNew: true },
   { icon: <Users size={18} />, label: "Quản lý người dùng", path: "/admin/users" },
-  { icon: <Package size={18} />, label: "Quản lý sản phẩm", path: "/admin/products" },
-  { icon: <Package size={18} />, label: "Quản lý đơn hàng", path: "/admin/orders" },
-  { icon: <BarChart2 size={18} />, label: "Thống kê thu chi", path: "/admin/finance" },
+  // { icon: <Package size={18} />, label: "Quản lý sản phẩm", path: "/admin/products" },
+  // { icon: <Package size={18} />, label: "Quản lý đơn hàng", path: "/admin/orders" },
+  // { icon: <BarChart2 size={18} />, label: "Thống kê thu chi", path: "/admin/finance" },
 ];
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {

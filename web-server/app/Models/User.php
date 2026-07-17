@@ -6,11 +6,10 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use App\Models\Product;
+use App\Models\Shop;
 
-/**
- * @method \Illuminate\Database\Relations\BelongsToMany productsInCart()
- */
 class User extends Authenticatable
 {
     use HasApiTokens, Notifiable;
@@ -18,8 +17,8 @@ class User extends Authenticatable
     protected $fillable = [
         'name',
         'username',
-        'phone_number', // Đã thêm
-        'address',      // Đã thêm
+        'phone_number',
+        'address',
         'profile_image_url',
         'password',
         'role',
@@ -35,12 +34,41 @@ class User extends Authenticatable
     ];
 
     /**
-     * Quan hệ many-to-many giữa user và product qua bảng carts
+     * Giỏ hàng
      */
     public function productsInCart(): BelongsToMany
     {
-        return $this->belongsToMany(Product::class, 'carts', 'user_id', 'product_id')
-                    ->withPivot('quantity')
-                    ->withTimestamps();
+        return $this->belongsToMany(
+            Product::class,
+            'carts',
+            'user_id',
+            'product_id'
+        )
+        ->withPivot('quantity')
+        ->withTimestamps();
+    }
+
+    /**
+     * Shop của chủ cửa hàng
+     */
+    public function shop(): HasOne
+    {
+        return $this->hasOne(Shop::class, 'user_id');
+    }
+
+    /**
+     * Kiểm tra quyền Admin
+     */
+    public function isAdmin(): bool
+    {
+        return $this->role === 'admin';
+    }
+
+    /**
+     * Kiểm tra quyền Chủ cửa hàng
+     */
+    public function isShopOwner(): bool
+    {
+        return $this->role === 'shop_owner';
     }
 }

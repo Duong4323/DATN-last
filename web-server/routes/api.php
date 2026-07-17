@@ -12,6 +12,6 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 require __DIR__ . '/login/login.php';
 require __DIR__.'/user/user.php';
 require __DIR__ . '/product/product.php';
+require __DIR__ . '/shop/shop.php';
 require __DIR__ . '/cart/cart.php';
 require __DIR__ . '/orders/orders.php';
-require __DIR__ . '/tryon/tryon.php';

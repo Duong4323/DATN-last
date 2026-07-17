@@ -4,71 +4,170 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Shop;
 
 class Product extends Model
 {
     use HasFactory;
 
     protected $fillable = [
+        'shop_id',
         'name',
-        // 'image_url' đã bị loại bỏ vì giờ dùng quan hệ images()
+        'brand',
+        'colors',
+        'material',
+        'origin',
+        'design_style',
+        'fashion_style',
         'description',
         'price',
+        'size_details',
         'quantity',
         'sold',
     ];
 
-    // Thêm thuộc tính ảo 'remaining' và 'thumbnail_url'
-    protected $appends = ['remaining', 'thumbnail_url'];
+    protected $casts = [
+        'size_details' => 'array',
+        'colors' => 'array',
+    ];
 
-    // ----------------------------------------------------
-    // RELATIONS (QUAN HỆ)
-    // ----------------------------------------------------
+    protected $appends = [
+        'remaining',
+        'thumbnail_url',
+        'available_sizes',
+        'available_colors',
+        'shop_name',
+    ];
 
-    /**
-     * Quan hệ One-to-Many với ProductImage.
-     * Một sản phẩm có nhiều ảnh.
-     */
     public function images()
     {
         return $this->hasMany(ProductImage::class);
     }
 
-    /**
-     * Quan hệ Many-to-Many với Category (Giữ nguyên)
-     */
     public function categories()
     {
-        return $this->belongsToMany(Category::class, 'category_product', 'product_id', 'category_id');
+        return $this->belongsToMany(
+            Category::class,
+            'category_product',
+            'product_id',
+            'category_id'
+        );
     }
 
-    // ----------------------------------------------------
-    // ACCESSORS (THUỘC TÍNH ẢO)
-    // ----------------------------------------------------
-
-    /**
-     * Accessor để tính số lượng sản phẩm còn lại.
-     */
-    public function getRemainingAttribute()
+    public function shop()
     {
-        return max(0, (int)$this->quantity - (int)$this->sold);
+        return $this->belongsTo(Shop::class);
     }
 
-    /**
-     * Accessor để lấy URL của ảnh đại diện (Thumbnail).
-     * Sẽ tìm ảnh được đánh dấu là thumbnail hoặc ảnh đầu tiên.
-     */
-    public function getThumbnailUrlAttribute()
+    public function variantStocks()
     {
-        // Ưu tiên lấy ảnh có cờ is_thumbnail = true
-        $thumbnail = $this->images()->where('is_thumbnail', true)->first();
-        
-        // Nếu không có, lấy ảnh đầu tiên
-        if (!$thumbnail) {
-            $thumbnail = $this->images()->first();
+        return $this->hasMany(ProductVariantStock::class);
+    }
+
+    public function getShopNameAttribute()
+{
+    $shop = $this->shop;
+    return $shop ? $shop->name : null;
+}
+
+    public function getAvailableSizesAttribute()
+    {
+        if ($this->relationLoaded('variantStocks') || $this->variantStocks()->exists()) {
+            return $this->variantStocks
+                ->filter(fn ($variant) => (int) $variant->quantity > 0 && filled($variant->size))
+                ->pluck('size')
+                ->unique()
+                ->values()
+                ->toArray();
         }
 
-        // Trả về URL của ảnh đại diện hoặc NULL
+        if (!$this->size_details) {
+            return [];
+        }
+
+        return collect($this->size_details)
+            ->flatMap(function ($value, $key) {
+                if (is_array($value)) {
+                    return collect($value)
+                        ->filter(fn ($qty) => (int) $qty > 0)
+                        ->keys();
+                }
+
+                return (int) $value > 0 ? [$key] : [];
+            })
+            ->unique()
+            ->values()
+            ->toArray();
+    }
+
+    public function getAvailableColorsAttribute()
+    {
+        if ($this->relationLoaded('variantStocks') || $this->variantStocks()->exists()) {
+            return $this->variantStocks
+                ->filter(fn ($variant) => (int) $variant->quantity > 0 && filled($variant->color))
+                ->pluck('color')
+                ->unique()
+                ->values()
+                ->toArray();
+        }
+
+        if (!$this->size_details) {
+            return [];
+        }
+
+        return collect($this->size_details)
+            ->filter(fn ($value) => is_array($value) && collect($value)->sum() > 0)
+            ->keys()
+            ->values()
+            ->toArray();
+    }
+
+    public function getRemainingAttribute()
+    {
+        return max(0, (int) $this->quantity);
+    }
+
+    public function getSizeDetailsAttribute($value)
+    {
+        if ($this->relationLoaded('variantStocks') || $this->variantStocks()->exists()) {
+            $variants = $this->relationLoaded('variantStocks')
+                ? $this->variantStocks
+                : $this->variantStocks()->get();
+
+            return $variants->reduce(function (array $stock, ProductVariantStock $variant) {
+                $color = $variant->color ?: 'Mặc định';
+                $size = $variant->size ?: 'Không size';
+                $stock[$color][$size] = (int) $variant->quantity;
+
+                return $stock;
+            }, []);
+        }
+
+        return $this->casts['size_details'] === 'array' && is_string($value)
+            ? json_decode($value, true)
+            : $value;
+    }
+
+    public function getThumbnailUrlAttribute()
+    {
+        $thumbnail = $this->images()
+            ->where('is_thumbnail', true)
+            ->first() ?? $this->images()->first();
+
         return $thumbnail ? $thumbnail->url : null;
+    }
+
+    protected static function booted()
+    {
+        static::saving(function ($product) {
+            $rawSizeDetails = $product->getRawOriginal('size_details') ?? $product->attributes['size_details'] ?? null;
+            $sizeDetails = is_string($rawSizeDetails) ? json_decode($rawSizeDetails, true) : $rawSizeDetails;
+
+            if ($sizeDetails) {
+                $product->quantity = collect($sizeDetails)->sum(function ($value) {
+                    return is_array($value) ? collect($value)->sum() : (int) $value;
+                });
+            }
+        });
     }
 }

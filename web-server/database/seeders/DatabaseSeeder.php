@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
             UserSeeder::class,
             // THÊM: CategorySeeder để điền dữ liệu cho bảng categories
             CategorySeeder::class,
+            SizeChartSeeder::class,
         ]);
     }
 }

@@ -1,264 +1,184 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Table, Tag, Typography, Card, Space, Alert, Select, Button, message, Skeleton } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
-// 💡 Import API services - ĐÃ SỬA LỖI ĐƯỜNG DẪN
-import { getOrderHistory, updateOrder } from '../../api/orderApi'; 
+import React, { useEffect, useState, useCallback } from "react";
+import {
+  Table,
+  Tag,
+  Typography,
+  Card,
+  Space,
+  Alert,
+  Button,
+  Badge,
+} from "antd";
+import type { ColumnsType } from "antd/es/table";
+import { getOrderHistory, OrderHistoryItem } from "../../api/orderApi";
 
-const { Title } = Typography;
-const { Option } = Select;
+const { Title, Text } = Typography;
 
-// Định nghĩa kiểu dữ liệu cho một Đơn hàng
-export interface OrderHistoryItem {
-    id: number;
-    orderId: string;
-    buyerName: string;
-    products: string[];
-    totalAmount: number;
-    date: string;
-    orderStatus: string; // Trạng thái đã dịch (vd: 'Chưa xử lý')
-    paymentStatus: string; 
-    statusKey: 'pending' | 'confirmed' | 'shipping' | 'delivered' | 'cancelled'; 
-    // 💡 TRƯỜNG NÀY (paymentStatusKey) PHẢI ĐƯỢC API TRẢ VỀ
-    paymentStatusKey: 'unpaid' | 'paid' | 'refunded'; 
-}
+const STATUS_MAP: Record<string, { label: string; color: string }> = {
+  pending: { label: "Chưa xử lý", color: "gold" },
+  confirmed: { label: "Đã xác nhận", color: "blue" },
+  shipping: { label: "Đang giao", color: "cyan" },
+  delivered: { label: "Đã giao", color: "green" },
+  cancelled: { label: "Đã hủy", color: "red" },
+  returned: { label: "Trả hàng", color: "purple" },
+};
 
-// Định nghĩa các trạng thái đơn hàng
-const STATUS_OPTIONS = [
-    { key: 'pending', label: 'Chưa xử lý', color: 'gold' },
-    { key: 'confirmed', label: 'Đã xác nhận', color: 'blue' },
-    { key: 'shipping', label: 'Đang giao', color: 'cyan' },
-    { key: 'delivered', label: 'Đã giao', color: 'green' },
-    { key: 'cancelled', label: 'Đã hủy', color: 'red' },
-];
-
-// 💡 ĐỊNH NGHĨA TRẠNG THÁI THANH TOÁN MỚI
-const PAYMENT_STATUS_OPTIONS = [
-    { key: 'unpaid', label: 'Chưa thanh toán', color: 'volcano' },
-    { key: 'paid', label: 'Đã thanh toán', color: 'green' },
-    { key: 'refunded', label: 'Đã hoàn tiền', color: 'geekblue' },
-];
+const PAYMENT_MAP: Record<string, { label: string; color: string }> = {
+  unpaid: { label: "Chưa thanh toán", color: "volcano" },
+  paid: { label: "Đã thanh toán", color: "green" },
+  refunded: { label: "Đã hoàn tiền", color: "geekblue" },
+};
 
 const AdminOrderManagement: React.FC = () => {
-    const [orders, setOrders] = useState<OrderHistoryItem[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string>('');
-    const [updatingOrderId, setUpdatingOrderId] = useState<number | null>(null);
+  const [orders, setOrders] = useState<OrderHistoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-    const fetchOrders = useCallback(async () => {
-        setLoading(true);
-        setError('');
-        try {
-            // Giả định: Backend đã được sửa để trả về TẤT CẢ đơn hàng cho Admin
-            const data = await getOrderHistory();
-            setOrders(data);
-        } catch (err: any) {
-            console.error("Fetch Orders Error:", err);
-            setError(err.response?.data?.message || 'Lỗi khi tải danh sách đơn hàng.');
-        } finally {
-            setLoading(false);
-        }
-    }, []);
+  const fetchOrders = useCallback(async () => {
+    setLoading(true);
+    setError("");
 
-    useEffect(() => {
-        fetchOrders();
-    }, [fetchOrders]);
-    
-    // --- HÀM CHUNG XỬ LÝ CẬP NHẬT TRẠNG THÁI ---
-    
-    // Cập nhật trạng thái Đơn hàng (Order Status)
-    const handleUpdateOrderStatus = async (orderId: number, newStatusKey: OrderHistoryItem['statusKey']) => {
-        setUpdatingOrderId(orderId);
-        try {
-            // GỌI API: Chỉ gửi trường 'status'
-            await updateOrder(orderId, { status: newStatusKey });
+    try {
+      const data = await getOrderHistory();
+      setOrders(data);
+    } catch (err: any) {
+      setError(err.response?.data?.message || "Lỗi khi tải danh sách đơn hàng.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-            message.success(`Trạng thái ĐH #${orderId} đã được cập nhật.`);
-            fetchOrders(); 
-        } catch (err: any) {
-            console.error("Update Status Error:", err);
-            message.error(err.response?.data?.message || 'Cập nhật trạng thái thất bại.');
-        } finally {
-            setUpdatingOrderId(null);
-        }
-    };
-    
-    // 💡 Cập nhật trạng thái Thanh toán (Payment Status)
-    const handleUpdatePaymentStatus = async (orderId: number, newPaymentStatusKey: OrderHistoryItem['paymentStatusKey']) => {
-        setUpdatingOrderId(orderId);
-        try {
-            // GỌI API: Chỉ gửi trường 'payment_status'
-            await updateOrder(orderId, { payment_status: newPaymentStatusKey });
+  useEffect(() => {
+    fetchOrders();
+  }, [fetchOrders]);
 
-            message.success(`Trạng thái TT #${orderId} đã được cập nhật.`);
-            fetchOrders(); 
-        } catch (err: any) {
-            console.error("Update Payment Status Error:", err);
-            message.error(err.response?.data?.message || 'Cập nhật trạng thái thanh toán thất bại.');
-        } finally {
-            setUpdatingOrderId(null);
-        }
-    };
-    
-    // --- CẤU HÌNH CỘT BẢNG ---
-    
-    const getStatusOption = (key: string, options: typeof STATUS_OPTIONS | typeof PAYMENT_STATUS_OPTIONS) => options.find(o => o.key === key);
-
-    const columns: ColumnsType<OrderHistoryItem> = [
-        {
-            title: 'Mã ĐH',
-            dataIndex: 'orderId',
-            key: 'orderId',
-            width: 100,
-        },
-        {
-            title: 'Người mua',
-            dataIndex: 'buyerName',
-            key: 'buyerName',
-            width: 150,
-        },
-        {
-            title: 'Sản phẩm',
-            dataIndex: 'products',
-            key: 'products',
-            render: (products: string[]) => (
-                <Space direction="vertical" size={2}>
-                    {products.map((product, index) => (
-                        <div key={index} className="text-sm text-gray-600 truncate max-w-xs">{product}</div>
-                    ))}
-                </Space>
-            ),
-        },
-        {
-            title: 'Thành tiền',
-            dataIndex: 'totalAmount',
-            key: 'totalAmount',
-            width: 120,
-            render: (amount: number) => (
-                <span className="font-semibold text-red-600">
-                    {amount.toLocaleString('vi-VN')} VND
-                </span>
-            ),
-        },
-        // -----------------------------------------------------------
-        // 💡 CỘT TRẠNG THÁI THANH TOÁN (ĐÃ SỬA LỖI BẰNG CÁCH SỬ DỤNG paymentStatusKey)
-        // -----------------------------------------------------------
-        {
-            title: 'Trạng thái TT',
-            dataIndex: 'paymentStatus', 
-            key: 'paymentStatus',
-            width: 150,
-            render: (_, record) => {
-                const currentPaymentStatus = getStatusOption(record.paymentStatusKey, PAYMENT_STATUS_OPTIONS);
-                
-                return (
-                    <Select
-                        // SỬ DỤNG KEY GỐC TỪ API ĐỂ THIẾT LẬP GIÁ TRỊ MẶC ĐỊNH
-                        defaultValue={record.paymentStatusKey} 
-                        style={{ width: 140 }}
-                        disabled={updatingOrderId === record.id} 
-                        onChange={(newPaymentStatusKey: OrderHistoryItem['paymentStatusKey']) => 
-                            handleUpdatePaymentStatus(record.id, newPaymentStatusKey)
-                        }
-                        dropdownRender={menu => (
-                            <>
-                                {menu}
-                                <div style={{ padding: '4px 8px' }}>
-                                    {updatingOrderId === record.id && <Skeleton.Input style={{ width: 120, height: 28 }} active size="small" />}
-                                </div>
-                            </>
-                        )}
-                    >
-                        {PAYMENT_STATUS_OPTIONS.map(option => (
-                            <Option key={option.key} value={option.key}>
-                                <Tag color={option.color}>{option.label}</Tag>
-                            </Option>
-                        ))}
-                    </Select>
-                );
-            },
-        },
-        // -----------------------------------------------------------
-        // CỘT: TRẠNG THÁI ĐƠN HÀNG
-        // -----------------------------------------------------------
-        {
-            title: 'Trạng thái ĐH',
-            dataIndex: 'statusKey', // Dùng key gốc
-            key: 'statusKey',
-            width: 150,
-            render: (_, record) => {
-                const currentStatus = getStatusOption(record.statusKey, STATUS_OPTIONS);
-                
-                return (
-                    <Select
-                        defaultValue={record.statusKey}
-                        style={{ width: 140 }}
-                        disabled={updatingOrderId === record.id} 
-                        onChange={(newStatusKey: OrderHistoryItem['statusKey']) => 
-                            handleUpdateOrderStatus(record.id, newStatusKey)
-                        }
-                        dropdownRender={menu => (
-                            <>
-                                {menu}
-                                <div style={{ padding: '4px 8px' }}>
-                                    {updatingOrderId === record.id && <Skeleton.Input style={{ width: 120, height: 28 }} active size="small" />}
-                                </div>
-                            </>
-                        )}
-                    >
-                        {STATUS_OPTIONS.map(option => (
-                            <Option key={option.key} value={option.key}>
-                                <Tag color={option.color}>{option.label}</Tag>
-                            </Option>
-                        ))}
-                    </Select>
-                );
-            },
-        },
-        {
-            title: 'Ngày tạo',
-            dataIndex: 'date',
-            key: 'date',
-            width: 120,
-        },
-    ];
-
-    if (loading) {
-        return (
-            <div className="p-4">
-                <Card title={<Title level={3}>Quản lý Đơn hàng</Title>}>
-                    <Skeleton active />
-                </Card>
+  const columns: ColumnsType<OrderHistoryItem> = [
+    {
+      title: "Mã ĐH",
+      dataIndex: "orderId",
+      key: "orderId",
+      width: 110,
+      fixed: "left",
+      render: (text) => (
+        <Text copyable strong style={{ color: "#4f46e5" }}>
+          {text}
+        </Text>
+      ),
+    },
+    {
+      title: "Cửa hàng",
+      dataIndex: "shop_name",
+      key: "shop_name",
+      width: 180,
+      render: (text) => <Text strong>{text || "-"}</Text>,
+    },
+    {
+      title: "Khách hàng",
+      key: "buyer",
+      width: 220,
+      render: (_, record: any) => (
+        <Space direction="vertical" size={0}>
+          <Text strong>{record.buyerName || record.customer_name || "-"}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {record.shipping_address}
+          </Text>
+        </Space>
+      ),
+    },
+    {
+      title: "Sản phẩm",
+      dataIndex: "products",
+      key: "products",
+      render: (products: string[]) => (
+        <div>
+          {(products || []).map((p, i) => (
+            <div key={i} className="mb-1 flex gap-2">
+              <Badge status="processing" />
+              <Text style={{ fontSize: 12 }}>{p}</Text>
             </div>
-        );
-    }
-
-    if (error) {
-        return <Alert message="Lỗi tải dữ liệu" description={error} type="error" showIcon className="mt-4" />;
-    }
-
-    return (
-        <div className="p-4 md:p-8 min-h-screen bg-gray-100">
-            <Card className="shadow-2xl">
-                <Title level={2} className="text-indigo-600 mb-6 border-b pb-3">Quản lý Đơn hàng</Title>
-                
-                <Alert
-                    message="Quyền Admin"
-                    description="Bạn có quyền thay đổi trạng thái của bất kỳ đơn hàng nào bằng cách sử dụng thanh chọn."
-                    type="warning"
-                    showIcon
-                    className="mb-6"
-                />
-
-                <Table 
-                    columns={columns} 
-                    dataSource={orders} 
-                    pagination={{ pageSize: 15 }} 
-                    rowKey="id"
-                    scroll={{ x: 1200 }} 
-                />
-            </Card>
+          ))}
         </div>
-    );
+      ),
+    },
+    {
+      title: "Tổng tiền",
+      dataIndex: "totalAmount",
+      key: "totalAmount",
+      width: 140,
+      render: (amount: number) => (
+        <Text strong style={{ color: "#ff4d4f" }}>
+          {Number(amount || 0).toLocaleString("vi-VN")} ₫
+        </Text>
+      ),
+    },
+    {
+      title: "Thanh toán",
+      dataIndex: "paymentStatusKey",
+      key: "paymentStatusKey",
+      width: 150,
+      render: (value: string, record: any) => {
+        const key = value || record.payment_status;
+        const item = PAYMENT_MAP[key] || { label: key, color: "default" };
+
+        return <Tag color={item.color}>{item.label}</Tag>;
+      },
+    },
+    {
+      title: "Trạng thái",
+      dataIndex: "statusKey",
+      key: "statusKey",
+      width: 150,
+      render: (value: string, record: any) => {
+        const key = value || record.status;
+        const item = STATUS_MAP[key] || { label: key, color: "default" };
+
+        return <Tag color={item.color}>{item.label}</Tag>;
+      },
+    },
+    {
+      title: "Ngày đặt",
+      dataIndex: "date",
+      key: "date",
+      width: 150,
+    },
+  ];
+
+  return (
+    <div className="p-6 md:p-8 bg-[#f5f7f9] min-h-screen">
+      <Card bordered={false} className="rounded-2xl shadow-sm">
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <Title level={3} style={{ margin: 0, fontWeight: 900 }}>
+              📦 Quản lý đơn hàng hệ thống
+            </Title>
+            <Text type="secondary">
+              Admin chỉ xem và giám sát đơn hàng của toàn bộ cửa hàng.
+            </Text>
+          </div>
+
+          <Button type="primary" onClick={fetchOrders} loading={loading}>
+            Làm mới
+          </Button>
+        </div>
+
+        {error && <Alert message={error} type="error" showIcon className="mb-6" />}
+
+        <Table
+          columns={columns}
+          dataSource={orders}
+          rowKey="id"
+          loading={loading}
+          bordered
+          pagination={{
+            pageSize: 10,
+            showSizeChanger: true,
+            showTotal: (total) => `Tổng cộng ${total} đơn hàng`,
+          }}
+          scroll={{ x: 1200 }}
+        />
+      </Card>
+    </div>
+  );
 };
 
 export default AdminOrderManagement;

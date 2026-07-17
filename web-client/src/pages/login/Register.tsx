@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Button, Form, Input, Typography, Alert, message } from 'antd';
 import axios from 'axios';
+import AddressSelector from '@/components/AddressSelector';
 // Giả định URL API được cấu hình trong biến môi trường VITE_API_URL
 
 const { Title } = Typography;
@@ -157,16 +158,17 @@ const Register: React.FC = () => {
           <Form.Item 
             label="Số điện thoại (Tùy chọn)"
             name="phone_number" 
-          >
+          rules={[{ required: true, message: "Vui lòng nhập số điện thoại!" }]}>
             <Input size="large" placeholder="Số điện thoại liên hệ" />
           </Form.Item>
 
           {/* Địa chỉ (Tùy chọn) */}
-          <Form.Item 
-            label="Địa chỉ (Tùy chọn)"
-            name="address" 
+          <Form.Item
+            label="Dia chi"
+            name="address"
+            rules={[{ required: true, message: "Vui lòng nhập địa chỉ!" }]}
           >
-            <Input.TextArea rows={2} placeholder="Địa chỉ chi tiết" />
+            <AddressSelector />
           </Form.Item>
           
           {/* Nút Đăng Ký */}

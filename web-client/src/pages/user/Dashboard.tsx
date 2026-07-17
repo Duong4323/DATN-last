@@ -1,95 +1,130 @@
-import React, { useState } from "react";
-import UserNavbar from "../../layouts/UserNavbar"; 
-import UserFooter from "../../layouts/UserFooter"; 
-import BestSellerProducts from "./productList"; 
-import HeroSlider from "./HeroSlider"; 
-import CartPage from "./Cart"; 
+import React, { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import UserNavbar from "../../layouts/UserNavbar";
+import UserFooter from "../../layouts/UserFooter";
+import BestSellerProducts from "./productList";
+import HeroSlider from "./HeroSlider";
+import CartPage from "./Cart";
 import ProductDetailPage from "../user/ProductDetailPage";
-import UserProfile from "../user/UserProfile"; 
-import UserOrderHistory from "../user/UserOrderHistory"; 
+import UserProfile from "../user/UserProfile";
+import UserOrderHistory from "../user/UserOrderHistory";
 
-// Định nghĩa các view có thể hiển thị
-type ContentView = 'home' | 'cart' | 'detail' | 'profile' | 'orders'; 
+type ContentView = "home" | "cart" | "detail" | "profile" | "orders";
 
 const UserContainer: React.FC = () => {
-    // 1. STATE QUẢN LÝ
-    // Quản lý danh mục (Để lọc sản phẩm ở trang chủ)
-    const [activeCategory, setActiveCategory] = useState({ 
-        key: 'home', 
-        name: 'Trang chủ' 
-    });
-    
-    // Quản lý giao diện đang hiển thị
-    const [currentView, setCurrentView] = useState<ContentView>('home');
-    
-    // Lưu ID sản phẩm cho trang chi tiết
-    const [detailProductId, setDetailProductId] = useState<number | null>(null);
+    const navigate = useNavigate();
+    const location = useLocation();
+    const isLoggedIn = !!localStorage.getItem("token");
 
-    // 2. CÁC HÀM ĐIỀU HƯỚNG (LOGIC CHUYỂN VIEW)
-    
-    // Hàm reset trạng thái chung
-    const resetToView = (view: ContentView, title: string) => {
+    const [activeCategory, setActiveCategory] = useState({ key: "home", name: "Trang chủ" });
+    const [currentView, setCurrentView] = useState<ContentView>("home");
+    const [detailProductId, setDetailProductId] = useState<number | null>(null);
+    const [searchQuery, setSearchQuery] = useState("");
+
+    useEffect(() => {
+        const productId = new URLSearchParams(location.search).get("productId");
+
+        if (!productId) {
+            if (location.pathname === "/products") {
+                setCurrentView("home");
+                setActiveCategory({ key: "all", name: "Tất cả sản phẩm" });
+                setDetailProductId(null);
+                window.scrollTo(0, 0);
+            } else if (location.pathname === "/") {
+                setActiveCategory((current) =>
+                    current.key === "all" ? { key: "home", name: "Trang chủ" } : current
+                );
+            }
+
+            return;
+        }
+
+        const parsedProductId = Number(productId);
+        if (!Number.isFinite(parsedProductId) || parsedProductId <= 0) return;
+
+        setDetailProductId(parsedProductId);
+        setCurrentView("detail");
+        window.scrollTo(0, 0);
+    }, [location.pathname, location.search]);
+
+    const clearProductLink = () => {
+        if (location.search) {
+            navigate("/", { replace: true });
+        }
+    };
+
+    const resetToView = (view: ContentView) => {
+        if (!isLoggedIn && (view === "profile" || view === "orders")) {
+            navigate("/login");
+            return;
+        }
+
         setCurrentView(view);
         setDetailProductId(null);
-        window.scrollTo(0, 0); // Luôn cuộn lên đầu khi chuyển view
-    };
-
-    // Chuyển về trang chủ hoặc danh mục sản phẩm (Nam, Nữ, v.v.)
-    const handleCategorySelect = (key: string, name: string) => {
-        setCurrentView('home');
-        setActiveCategory({ key, name });
-        setDetailProductId(null);
+        setSearchQuery("");
+        clearProductLink();
         window.scrollTo(0, 0);
     };
 
-    // Chuyển sang Giỏ hàng
-    const handleCartClick = () => resetToView('cart', 'Giỏ hàng');
+    const handleCategorySelect = (key: string, name: string) => {
+        setCurrentView("home");
+        setActiveCategory({ key, name });
+        setSearchQuery("");
+        setDetailProductId(null);
+        if (location.pathname !== "/") {
+            navigate("/", { replace: true });
+        }
+        clearProductLink();
+        window.scrollTo(0, 0);
+    };
 
-    // Chuyển sang Hồ sơ cá nhân
-    const handleProfileClick = () => resetToView('profile', 'Hồ sơ');
+    const handleSearch = (query: string) => {
+        setSearchQuery(query);
+        setDetailProductId(null);
+        clearProductLink();
 
-    // Chuyển sang Lịch sử đơn hàng
-    const handleOrdersClick = () => resetToView('orders', 'Đơn hàng');
+        if (currentView !== "home") {
+            setCurrentView("home");
+        }
+    };
 
-    // Chuyển sang Chi tiết sản phẩm
     const handleViewDetail = (productId: number) => {
         setDetailProductId(productId);
-        setCurrentView('detail');
+        setCurrentView("detail");
+        navigate(`/?productId=${productId}`);
         window.scrollTo(0, 0);
     };
 
-    // 3. LOGIC RENDER NỘI DUNG CHÍNH
+    const handleOrderSuccess = () => {
+        setCurrentView("home");
+        setActiveCategory({ key: "home", name: "Trang chủ" });
+        setSearchQuery("");
+        setDetailProductId(null);
+        navigate("/", { replace: true });
+        window.scrollTo(0, 0);
+    };
+
     const renderContent = () => {
         switch (currentView) {
-            case 'cart':
-                return <CartPage />;
-
-            case 'detail':
-                return detailProductId ? (
-                    <ProductDetailPage productId={detailProductId.toString()} />
-                ) : null;
-
-            case 'profile':
+            case "cart":
+                return <CartPage onOrderSuccess={handleOrderSuccess} />;
+            case "profile":
                 return <UserProfile />;
-
-            case 'orders':
+            case "orders":
                 return <UserOrderHistory />;
-
-            case 'home':
+            case "detail":
+                return detailProductId ? <ProductDetailPage productId={detailProductId.toString()} /> : null;
+            case "home":
             default:
-                const isRealHomePage = activeCategory.key === 'home';
+                const isRealHomePage = activeCategory.key === "home" && searchQuery === "";
                 return (
                     <div className="flex flex-col space-y-10">
-                        {/* HeroSlider chỉ hiện khi ở Trang Chủ thực sự */}
-                        {isRealHomePage && (
-                            <HeroSlider onCategorySelect={handleCategorySelect} />
-                        )}
-
-                        {/* Danh sách sản phẩm tự động lọc theo categoryKey */}
+                        {isRealHomePage && <HeroSlider onCategorySelect={handleCategorySelect} />}
                         <div className="pt-4">
-                            <BestSellerProducts 
-                                categoryKey={activeCategory.key} 
+                            <BestSellerProducts
+                                categoryKey={activeCategory.key}
                                 categoryName={activeCategory.name}
+                                searchQuery={searchQuery}
                                 onViewDetail={handleViewDetail}
                             />
                         </div>
@@ -98,27 +133,21 @@ const UserContainer: React.FC = () => {
         }
     };
 
-    // 4. GIAO DIỆN TỔNG THỂ (LAYOUT)
     return (
         <div className="min-h-screen flex flex-col bg-gray-50">
-            {/* Thanh điều hướng cố định */}
-            <UserNavbar 
-                activeKey={activeCategory.key} 
+            <UserNavbar
+                activeKey={activeCategory.key}
                 onCategorySelect={handleCategorySelect}
-                onCartClick={handleCartClick}
-                onProfileClick={handleProfileClick} 
-                onOrdersClick={handleOrdersClick}
+                onCartClick={() => resetToView("cart")}
+                onProfileClick={() => resetToView("profile")}
+                onOrdersClick={() => resetToView("orders")}
+                onSearch={handleSearch}
             />
 
-            {/* Nội dung thay đổi động */}
             <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-10">
-                {/* Bọc nội dung trong hiệu ứng fade-in đơn giản bằng CSS nếu muốn */}
-                <div className="animate-in fade-in duration-500">
-                    {renderContent()}
-                </div>
+                <div className="animate-in fade-in duration-500">{renderContent()}</div>
             </main>
 
-            {/* Chân trang */}
             <UserFooter />
         </div>
     );

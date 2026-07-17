@@ -11,35 +11,64 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // 1. Tạo bảng Đơn hàng (orders)
         Schema::create('orders', function (Blueprint $table) {
+
             $table->id();
-            
-            // Khóa ngoại liên kết với bảng users (người mua)
-            $table->foreignId('user_id')->constrained()->onDelete('cascade');
-            
-            // Tổng thành tiền của đơn hàng
-            $table->unsignedBigInteger('total_amount')->default(0);
-            
-            // 💡 Cột mới: Lưu chi tiết sản phẩm (tên, số lượng, giá) dưới dạng JSON
-            // Ví dụ: [{"product_name": "Áo A", "quantity": 1, "price": 500000}, ...]
-            $table->json('order_details'); 
 
-            // Trạng thái Đơn hàng: [chưa xử lý, đã xác nhận, đang giao, đã giao, đã hủy]
-            $table->enum('status', ['pending', 'confirmed', 'shipping', 'delivered', 'cancelled'])->default('pending');
+            // Người mua
+            $table->foreignId('user_id')
+                ->constrained()
+                ->onDelete('cascade');
 
-            // Trạng thái Thanh toán: [chưa thanh toán, đã thanh toán, đã hoàn tiền]
-            $table->enum('payment_status', ['unpaid', 'paid', 'refunded'])->default('unpaid');
+            // Shop nhận đơn
+            $table->foreignId('shop_id')
+                ->constrained('shops')
+                ->onDelete('cascade');
 
-            // Địa chỉ giao hàng cố định tại thời điểm đặt hàng
-            $table->string('shipping_address', 500); 
+            // Tổng tiền
+            $table->unsignedBigInteger('total_amount')
+                ->default(0);
+
+            /**
+             * Ví dụ:
+             * [
+             *   {
+             *     "product_id":1,
+             *     "product_name":"Áo Polo",
+             *     "quantity":2,
+             *     "price":300000,
+             *     "size":"L"
+             *   }
+             * ]
+             */
+            $table->json('order_details');
+
+            // Trạng thái đơn hàng
+            $table->enum('status', [
+                'pending',
+                'confirmed',
+                'shipping',
+                'delivered',
+                'cancelled',
+                'returned'
+            ])->default('pending');
+
+            // Trạng thái thanh toán
+            $table->enum('payment_status', [
+                'unpaid',
+                'paid',
+                'refunded'
+            ])->default('unpaid');
+
+            // Địa chỉ giao hàng
+            $table->string('shipping_address', 500);
 
             $table->timestamps();
         });
     }
 
     /**
-     * Hoàn tác migration (Xóa bảng).
+     * Hoàn tác migration
      */
     public function down(): void
     {

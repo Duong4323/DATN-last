@@ -1,22 +1,33 @@
 import React, { useState, useEffect } from "react";
-import { getProducts, createProduct, uploadProductImage, Product, Category, deleteProduct, updateProduct, ProductImage } from "../../api/productApi"; 
-import { ChevronLeft, ChevronRight } from 'lucide-react'; 
-import { message } from 'antd'; // <<< ĐÃ THÊM: Import module message từ Ant Design
+import { getProducts, getCategories, createProduct, uploadProductImage, Product, Category, ProductColorStock, deleteProduct, updateProduct } from "../../api/productApi"; 
+import { Plus, Trash2, Package } from 'lucide-react'; 
+import { message } from 'antd';
 
-// Danh sách Categories cố định
-const ALL_CATEGORIES: Category[] = [
-    { id: 1, name: "áo" }, { id: 2, name: "quần" }, { id: 3, name: "váy" },
-    { id: 4, name: "đồ đông" }, { id: 5, name: "đồ hè" }, { id: 6, name: "đồ nam" },
-    { id: 7, name: "đồ nữ" }, { id: 8, name: "đồ ngủ" }, { id: 9, name: "đồ lót" },
-    { id: 10, name: "áo khoác" }, { id: 11, name: "đồ thể thao" }, { id: 12, name: "đồ công sở" }
+const FALLBACK_CATEGORIES: Category[] = [
+    { id: 1, name: "Áo" }, { id: 2, name: "Quần" }, { id: 3, name: "Váy/Đầm" },
+    { id: 4, name: "Giày dép" }, { id: 5, name: "Túi xách" }, { id: 6, name: "Phụ kiện" },
+    { id: 7, name: "Set đồ" }, { id: 8, name: "Đồ ngủ" }, { id: 9, name: "Đồ lót" },
+    { id: 10, name: "Áo khoác" }, { id: 11, name: "Đồ thể thao" }, { id: 12, name: "Đồ công sở" }
 ];
 
-// Định nghĩa lại các Interface (Giữ nguyên)
+const APPAREL_SIZE_LIST = ["S", "M", "L", "XL", "XXL", "3XL", "Free Size"];
+const SHOE_SIZE_LIST = ["35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45"];
+const NO_SIZE_LABEL = "Không size";
+const normalizeCategoryText = (value: unknown) => String(value ?? "").toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
 interface NewProductData {
     name: string;
+    brand: string;
+    material: string;
+    origin: string;
+    design_style: string;
+    fashion_style: string;
+    colors: string[];
     description: string;
     price: number;
-    quantity: number;
+    size_details: ProductColorStock; 
     image_urls: string[]; 
     categories: number[];      
 }
@@ -27,31 +38,22 @@ interface EditingProductData extends NewProductData {
 
 const Products: React.FC = () => {
     const [products, setProducts] = useState<Product[]>([]);
+    const [categories, setCategories] = useState<Category[]>(FALLBACK_CATEGORIES);
     const [isLoading, setIsLoading] = useState<boolean>(true);
-    const [error, setError] = useState<string | null>(null);
-    
     const [isFormModalOpen, setIsFormModalOpen] = useState<boolean>(false); 
     const [isEditing, setIsEditing] = useState<boolean>(false);
+    const [isUploading, setIsUploading] = useState<boolean>(false);
     const [currentFormData, setCurrentFormData] = useState<NewProductData | EditingProductData>({
-        name: '', description: '', price: 0, quantity: 0, image_urls: [], categories: [],
+        name: '', brand: '', material: '', origin: '', design_style: '', fashion_style: '', colors: [], description: '', price: 0, size_details: {}, image_urls: [], categories: [],
     });
 
-    const [isDetailModalOpen, setIsDetailModalOpen] = useState<boolean>(false);
-    const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-    const [currentImageIndex, setCurrentImageIndex] = useState(0); 
-    
-    const [isUploading, setIsUploading] = useState<boolean>(false);
-    const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null); 
-
-    // --- Tải dữ liệu ---
     const fetchProducts = async () => {
         try {
             setIsLoading(true);
             const data = await getProducts();
             setProducts(data);
         } catch (err) {
-            console.error("Lỗi khi tải danh sách sản phẩm:", err);
-            setError("Không thể tải dữ liệu sản phẩm. Vui lòng kiểm tra API.");
+            message.error("Không thể tải dữ liệu sản phẩm.");
         } finally {
             setIsLoading(false);
         }
@@ -59,452 +61,407 @@ const Products: React.FC = () => {
 
     useEffect(() => {
         fetchProducts();
+        getCategories()
+            .then((data) => {
+                if (data.length > 0) setCategories(data);
+            })
+            .catch(() => {
+                message.warning("Không thể tải danh mục sản phẩm, tạm dùng danh mục mặc định.");
+            });
     }, []);
 
-    // --- Chức năng Xem Chi Tiết ---
-    const handleViewDetails = (product: Product) => {
-        setSelectedProduct(product);
-        setCurrentImageIndex(0); 
-        setIsDetailModalOpen(true);
+    const normalizeStock = (stock?: Record<string, any> | null): ProductColorStock => {
+        if (!stock) return {};
+        const hasNestedStock = Object.values(stock).some((value) => value && typeof value === 'object' && !Array.isArray(value));
+        if (hasNestedStock) return stock as ProductColorStock;
+
+        return {
+            "Mac dinh": Object.entries(stock).reduce<Record<string, number>>((acc, [size, qty]) => {
+                acc[size] = Number(qty) || 0;
+                return acc;
+            }, {}),
+        };
     };
 
-    // --- Logic Chuyển Ảnh Slider ---
-    const handleNextImage = () => {
-        if (!selectedProduct || selectedProduct.images.length === 0) return;
-        const totalImages = selectedProduct.images.length;
-        setCurrentImageIndex(prevIndex => (prevIndex + 1) % totalImages);
+    const getTotalStock = (stock: ProductColorStock) => Object.values(stock).reduce((sum, sizes) => {
+        return sum + Object.values(sizes).reduce((sizeSum, qty) => sizeSum + Number(qty || 0), 0);
+    }, 0);
+    const selectedCategoryTexts = categories
+        .filter((category) => currentFormData.categories.includes(category.id))
+        .map((category) => normalizeCategoryText(category.name));
+    const isNoSizeProduct = selectedCategoryTexts.some((name) => name.includes("tui xach") || name.includes("phu kien"));
+    const sizeOptions = selectedCategoryTexts.some((name) => name.includes("giay")) ? SHOE_SIZE_LIST : APPAREL_SIZE_LIST;
+
+    const renderStockBadges = (stock: Record<string, any>) => {
+        const normalized = normalizeStock(stock);
+
+        return Object.entries(normalized).flatMap(([color, sizes]) =>
+            Object.entries(sizes).map(([size, qty]) => (
+                <span key={`${color}-${size}`} className="bg-white border border-gray-200 text-gray-600 text-[10px] px-2 py-1 rounded-lg font-bold">
+                    {color}: {size} <span className={qty > 0 ? 'text-indigo-600' : 'text-red-500'}>{qty}</span>
+                </span>
+            ))
+        );
     };
 
-    const handlePrevImage = () => {
-        if (!selectedProduct || selectedProduct.images.length === 0) return;
-        const totalImages = selectedProduct.images.length;
-        setCurrentImageIndex(prevIndex => (prevIndex - 1 + totalImages) % totalImages);
-    };
+    // --- LOGIC MÀU, SIZE & KHO ---
+    const handleAddColorRow = () => {
+        const color = window.prompt("Nhập màu sản phẩm:");
+        const normalizedColor = color?.trim();
+        if (!normalizedColor) return;
+        if (currentFormData.size_details[normalizedColor]) return message.warning("Màu này đã tồn tại.");
 
-
-    // --- Xử lý Modal Thêm/Sửa (CRUD) ---
-
-    const handleOpenCreateModal = () => {
-        setIsEditing(false);
-        setCurrentFormData({ name: '', description: '', price: 0, quantity: 0, image_urls: [], categories: [], });
-        setSelectedImageFile(null);
-        setIsFormModalOpen(true);
-    };
-    
-    const handleEdit = (product: Product) => {
-        setIsEditing(true);
-        setCurrentFormData({
-            id: product.id,
-            name: product.name,
-            description: product.description || '',
-            price: product.price,
-            quantity: product.quantity,
-            image_urls: product.images.map(img => img.url), 
-            categories: product.categories.map(c => c.id),
-        });
-        setSelectedImageFile(null);
-        setIsFormModalOpen(true);
-    };
-    
-    const handleCloseFormModal = () => {
-        setIsFormModalOpen(false);
-        setIsEditing(false);
-        setSelectedImageFile(null);
-    };
-    
-    const handleFormInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-        const { name, value } = e.target;
         setCurrentFormData(prev => ({
-            ...prev as NewProductData,
-            [name]: name === 'price' || name === 'quantity' ? Number(value) : value,
+            ...prev,
+            colors: Array.from(new Set([...prev.colors, normalizedColor])),
+            size_details: { ...prev.size_details, [normalizedColor]: isNoSizeProduct ? { [NO_SIZE_LABEL]: 0 } : {} } as ProductColorStock,
         }));
     };
-    
-    const handleFormCategoryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const categoryId = Number(e.target.value);
-        const isChecked = e.target.checked;
 
+    const handleRemoveColorRow = (color: string) => {
+        const newDetails = { ...currentFormData.size_details };
+        delete newDetails[color];
+        setCurrentFormData(prev => ({
+            ...prev,
+            colors: prev.colors.filter(item => item !== color),
+            size_details: newDetails,
+        }));
+    };
+
+    const handleAddSizeRow = (color: string) => {
+        const sizes = currentFormData.size_details[color] || {};
+        if (isNoSizeProduct) {
+            if (Object.prototype.hasOwnProperty.call(sizes, NO_SIZE_LABEL)) return message.warning("Loại sản phẩm này không cần size.");
+            setCurrentFormData(prev => ({
+                ...prev,
+                size_details: {
+                    ...prev.size_details,
+                    [color]: { [NO_SIZE_LABEL]: 0 },
+                },
+            }));
+            return;
+        }
+        const available = sizeOptions.find(s => !Object.prototype.hasOwnProperty.call(sizes, s));
+        if (!available) return message.warning("Đã hết size để chọn cho màu này.");
+        setCurrentFormData(prev => ({
+            ...prev,
+            size_details: {
+                ...prev.size_details,
+                [color]: { ...(prev.size_details[color] || {}), [available]: 0 },
+            },
+        }));
+    };
+
+    const handleUpdateSizeQty = (color: string, size: string, qty: number) => {
+        setCurrentFormData(prev => ({
+            ...prev,
+            size_details: {
+                ...prev.size_details,
+                [color]: { ...(prev.size_details[color] || {}), [size]: Math.max(0, qty) },
+            },
+        }));
+    };
+
+    const handleRenameSizeRow = (color: string, oldSize: string, newSize: string) => {
         setCurrentFormData(prev => {
-            const currentCategories = (prev as NewProductData).categories;
+            const colorSizes = { ...(prev.size_details[color] || {}) };
+            const qty = colorSizes[oldSize] || 0;
+            delete colorSizes[oldSize];
+            colorSizes[newSize] = qty;
+            return { ...prev, size_details: { ...prev.size_details, [color]: colorSizes } };
+        });
+    };
+
+    const handleRemoveSizeRow = (color: string, size: string) => {
+        setCurrentFormData(prev => {
+            const colorSizes = { ...(prev.size_details[color] || {}) };
+            delete colorSizes[size];
+            return { ...prev, size_details: { ...prev.size_details, [color]: colorSizes } };
+        });
+    };
+
+    // --- LOGIC CATEGORIES ---
+    const handleCategoryChange = (categoryId: number) => {
+        setCurrentFormData(prev => {
+            const isChecked = prev.categories.includes(categoryId);
             if (isChecked) {
-                return { ...prev as NewProductData, categories: [...currentCategories, categoryId] };
+                return { ...prev, categories: prev.categories.filter(id => id !== categoryId) };
             } else {
-                return { ...prev as NewProductData, categories: currentCategories.filter(id => id !== categoryId) };
+                return { ...prev, categories: [...prev.categories, categoryId] };
             }
         });
     };
 
-    const handleFormFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = e.target.files;
-        if (!files || files.length === 0) {
-            setSelectedImageFile(null);
-            return;
-        }
-
-        const file = files[0];
-        
+    // --- LOGIC HÌNH ẢNH ---
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
         try {
-             setIsUploading(true);
-             const uploadResult = await uploadProductImage(file);
-             const newUrl = uploadResult.image_url;
-             
-             setCurrentFormData(prev => ({
-                 ...prev as NewProductData,
-                 image_urls: [...(prev as NewProductData).image_urls, newUrl] 
-             }));
-             message.success(`Tải ảnh ${file.name} lên thành công.`); // Sử dụng message.success
-
+            setIsUploading(true);
+            const res = await uploadProductImage(file);
+            setCurrentFormData(prev => ({ ...prev, image_urls: [...prev.image_urls, res.image_url] }));
+            message.success("Tải ảnh thành công!");
         } catch (err) {
-            message.error(`Không thể tải ảnh ${file.name} lên.`); // Sử dụng message.error
-            console.error(err);
+            message.error("Không thể tải dữ liệu sản phẩm.");
         } finally {
             setIsUploading(false);
-            if (e.target) e.target.value = ''; 
+            e.target.value = '';
         }
     };
 
+    // --- CRUD ---
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        let dataToSubmit = { ...currentFormData };
-
-        try {
-            let updatedOrCreatedProduct: Product;
-
-            if (isEditing) {
-                const id = (dataToSubmit as EditingProductData).id;
-                updatedOrCreatedProduct = await updateProduct(id, dataToSubmit);
-                
-                setProducts(products.map(p => p.id === id ? updatedOrCreatedProduct : p));
-                message.success(`Sản phẩm "${updatedOrCreatedProduct.name}" đã được CẬP NHẬT thành công!`); // Sửa alert thành message
-
-            } else {
-                updatedOrCreatedProduct = await createProduct(dataToSubmit);
-                
-                setProducts([...products, updatedOrCreatedProduct]);
-                message.success(`Sản phẩm "${updatedOrCreatedProduct.name}" đã được THÊM MỚI thành công!`); // Sửa alert thành message
+        const payload = isNoSizeProduct
+            ? {
+                ...currentFormData,
+                size_details: Object.entries(currentFormData.size_details).reduce<ProductColorStock>((acc, [color, sizes]) => {
+                    acc[color] = { [NO_SIZE_LABEL]: Object.values(sizes).reduce((sum, qty) => sum + Number(qty || 0), 0) };
+                    return acc;
+                }, {}),
             }
-
-            handleCloseFormModal();
-
-        } catch (err: any) {
-            setIsUploading(false);
-            console.error(`Lỗi khi ${isEditing ? 'cập nhật' : 'thêm'} sản phẩm:`, err);
-            
-            const errorMessage = err.response?.data?.errors 
-                ? Object.values(err.response.data.errors).flat().join(', ')
-                : `Không thể ${isEditing ? 'cập nhật' : 'thêm'} sản phẩm. Vui lòng thử lại.`;
-            message.error("Lỗi: " + errorMessage); // Sửa alert thành message
-        }
-    };
-
-    // --- Hàm xử lý Xóa Sản Phẩm ---
-    const handleDelete = async (id: number, name: string) => {
-        if (!window.confirm(`Bạn có chắc chắn muốn xóa sản phẩm "${name}" không?`)) {
-            return;
-        }
+            : currentFormData;
 
         try {
-            await deleteProduct(id);
-            setProducts(products.filter(p => p.id !== id));
-            message.success(`Sản phẩm "${name}" đã được xóa thành công!`); // Sửa alert thành message
-        } catch (err: any) {
-            console.error("Lỗi khi xóa sản phẩm:", err);
-            message.error("Không thể xóa sản phẩm. Vui lòng kiểm tra API."); // Sửa alert thành message
+            if (isEditing) {
+                const updated = await updateProduct((currentFormData as EditingProductData).id, payload);
+                setProducts(products.map(p => p.id === updated.id ? updated : p));
+                message.success("Đã cập nhật!");
+            } else {
+                const created = await createProduct(payload);
+                setProducts([created, ...products]);
+                message.success("Đã thêm sản phẩm!");
+            }
+            setIsFormModalOpen(false);
+        } catch (err) {
+            message.error("Không thể tải dữ liệu sản phẩm.");
         }
     };
-    
-    // --- JSX (Giao diện) ---
+
+    if (isLoading) {
+        return <div className="p-10 text-center font-bold text-indigo-600">Đang tải sản phẩm...</div>;
+    }
+
     return (
-        <div className="p-6 bg-gray-50 min-h-screen">
-            <div className="flex justify-between items-center mb-6">
-                <h1 className="text-3xl font-extrabold text-gray-900">
-                    🛍️ Quản lý sản phẩm
+        <div className="p-6 bg-gray-50 min-h-screen font-sans">
+            <div className="flex justify-between items-center mb-8">
+                <h1 className="text-3xl font-black text-gray-900 flex items-center gap-3">
+                    <Package className="text-indigo-600" size={32} /> Quản lý sản phẩm
                 </h1>
-                <button
-                    onClick={handleOpenCreateModal}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200"
-                >
-                    + Thêm Sản Phẩm Mới
+                <button onClick={() => { setIsEditing(false); setCurrentFormData({ name: '', brand: '', material: '', origin: '', design_style: '', fashion_style: '', colors: [], description: '', price: 0, size_details: {}, image_urls: [], categories: [] }); setIsFormModalOpen(true); }} 
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-2xl shadow-lg shadow-indigo-100 transition-all active:scale-95">
+                    + Thêm mới
                 </button>
             </div>
-            
-            {isLoading && <div className="text-center py-5 text-blue-500">Đang tải dữ liệu...</div>}
-            {error && <div className="text-center py-5 text-red-600 font-bold">{error}</div>}
 
-            {products.length === 0 && !isLoading && !error ? (
-                 <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 rounded-lg shadow-sm" role="alert">
-                    <p className="font-bold">Không tìm thấy sản phẩm nào.</p>
-                    <p>Hãy thêm sản phẩm mới để bắt đầu quản lý.</p>
-                </div>
-            ) : (
-                <div className="shadow-xl rounded-lg overflow-hidden">
-                <table className="min-w-full bg-white">
-                    <thead className="bg-gray-100 border-b border-gray-200">
+            {/* DANH SÁCH SẢN PHẨM */}
+            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+                <table className="min-w-full text-sm">
+                    <thead className="bg-gray-50/50">
                         <tr>
-                            <th className="py-3 px-6 text-left text-sm font-semibold text-gray-600">ID</th>
-                            <th className="py-3 px-6 text-left text-sm font-semibold text-gray-600">Tên sản phẩm</th>
-                            <th className="py-3 px-6 text-left text-sm font-semibold text-gray-600">Loại</th>
-                            <th className="py-3 px-6 text-left text-sm font-semibold text-gray-600">Giá</th>
-                            <th className="py-3 px-6 text-left text-sm font-semibold text-gray-600">Tồn kho</th>
-                            <th className="py-3 px-6 text-left text-sm font-semibold text-gray-600">Còn lại</th> 
-                            <th className="py-3 px-6 text-left text-sm font-semibold text-gray-600">Thao tác</th>
+                            <th className="py-4 px-6 text-left font-black text-gray-400 uppercase">Sản phẩm</th>
+                            <th className="py-4 px-6 text-left font-black text-gray-400 uppercase">Kho hàng (Size)</th>
+                            <th className="py-4 px-6 text-left font-black text-gray-400 uppercase">Giá bán</th>
+                            <th className="py-4 px-6 text-right font-black text-gray-400 uppercase">Thao tác</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-gray-50">
                         {products.map((p) => (
-                            <tr key={p.id} className="border-t hover:bg-indigo-50 transition duration-150 ease-in-out">
-                                <td className="py-3 px-6 text-sm text-gray-800">{p.id}</td>
-                                <td className="py-3 px-6 text-sm font-medium text-gray-900 cursor-pointer hover:underline"
-                                    onClick={() => handleViewDetails(p)}
-                                >
-                                    {p.name}
+                            <tr key={p.id} className="hover:bg-gray-50/50 transition">
+                                <td className="py-4 px-6">
+                                    <div className="flex items-center gap-4">
+                                        <img src={p.thumbnail_url || ''} className="w-14 h-14 object-cover rounded-2xl border border-gray-100" alt="" />
+                                        <div>
+                                            <div className="font-bold text-gray-900">{p.name}</div>
+                                            <div className="text-[10px] text-gray-400 font-bold uppercase">ID: #{p.id}</div>
+                                        </div>
+                                    </div>
                                 </td>
-                                <td className="py-3 px-6 text-sm text-gray-600">
-                                    {p.categories?.slice(0, 2).map(c => (
-                                        <span key={c.id} className="inline-block bg-blue-100 text-blue-800 text-xs font-medium mr-1 mb-1 px-2.5 py-0.5 rounded-full">
-                                            {c.name}
-                                        </span>
-                                    ))}
-                                    {p.categories?.length > 2 && <span className="text-xs text-gray-500">...</span>}
+                                <td className="py-4 px-6">
+                                    <div className="flex flex-wrap gap-2">
+                                        {renderStockBadges(p.size_details || {})}
+                                    </div>
                                 </td>
-                                <td className="py-3 px-6 text-sm text-green-600 font-bold">{p.price.toLocaleString('vi-VN')} ₫</td>
-                                <td className="py-3 px-6 text-sm text-gray-600">{p.quantity}</td>
-                                <td className="py-3 px-6 text-sm text-gray-600">
-                                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${p.remaining! > 10 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                                        {p.remaining}
-                                    </span>
-                                </td>
-                                <td className="py-3 px-6 text-sm flex space-x-2">
-                                    <button 
-                                        onClick={() => handleEdit(p)}
-                                        className="text-indigo-600 hover:text-indigo-900 font-medium"
-                                    >
-                                        Sửa
-                                    </button>
-                                    <button 
-                                        onClick={() => handleDelete(p.id, p.name)}
-                                        className="text-red-600 hover:text-red-900 font-medium"
-                                    >
-                                        Xóa
-                                    </button>
+                                <td className="py-4 px-6 font-black text-gray-900">{p.price.toLocaleString()} ₫</td>
+                                <td className="py-4 px-6 text-right space-x-4">
+                                    <button onClick={() => { const normalizedStock = normalizeStock(p.size_details); setIsEditing(true); setCurrentFormData({ id: p.id, name: p.name, brand: p.brand || '', material: p.material || '', origin: p.origin || '', design_style: p.design_style || '', fashion_style: p.fashion_style || '', colors: p.colors?.length ? p.colors : Object.keys(normalizedStock), description: p.description || '', price: p.price, size_details: normalizedStock, image_urls: p.images.map(i => i.url), categories: p.categories.map(c => c.id) }); setIsFormModalOpen(true); }} className="text-indigo-600 font-bold hover:underline">Sửa</button>
+                                    <button onClick={() => { if(window.confirm('Xóa?')) { deleteProduct(p.id).then(() => fetchProducts()); } }} className="text-red-500 font-bold hover:underline">Xóa</button>
                                 </td>
                             </tr>
                         ))}
                     </tbody>
-                </table >
-                </div>
-            )}
-            
-            {/* --- MODAL THÊM/SỬA SẢN PHẨM (CREATE/EDIT) --- */}
+                </table>
+            </div>
+
+            {/* MODAL THÊM/SỬA */}
             {isFormModalOpen && (
-                <div className="fixed inset-0 z-50 bg-gray-900 bg-opacity-70 overflow-y-auto h-full w-full flex justify-center items-center">
-                    <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto transform transition-all duration-300 scale-100">
-                        <div className="flex justify-between items-center mb-4 border-b pb-2">
-                            <h3 className="text-xl font-semibold text-gray-800">
-                                {isEditing ? 'Cập Nhật Sản Phẩm' : 'Thêm Sản Phẩm Mới'}
-                            </h3>
-                            <button onClick={handleCloseFormModal} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
-                        </div>
-                        <form onSubmit={handleSubmit}>
-                            
-                            {/* Tên Sản Phẩm */}
-                            <div className="mb-4">
-                                <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="name">Tên Sản Phẩm <span className="text-red-500">*</span></label>
-                                <input id="name" name="name" type="text" value={currentFormData.name} onChange={handleFormInputChange} required className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring focus:ring-indigo-300" />
-                            </div>
-
-                            {/* CHỌN ẢNH SẢN PHẨM (Nhiều ảnh) */}
-                            <div className="mb-4">
-                                <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="image">Thêm Ảnh Sản Phẩm</label>
-                                <input id="image" name="image" type="file" accept="image/*" onChange={handleFormFileChange} disabled={isUploading} className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring focus:ring-indigo-300 disabled:bg-gray-100" />
-                                
-                                {isUploading && <p className="text-blue-500 text-sm mt-1">Đang tải ảnh lên...</p>}
-                                
-                                <div className="mt-2 flex flex-wrap gap-2 max-h-24 overflow-y-auto border p-1 rounded">
-                                    {currentFormData.image_urls.map((url, index) => (
-                                        <div key={index} className="relative group">
-                                            <img src={url} alt={`Ảnh ${index}`} className="w-12 h-12 object-cover rounded" />
-                                            {/* Nút xóa ảnh */}
-                                            <button 
-                                                type="button" 
-                                                onClick={() => setCurrentFormData(prev => ({...prev as NewProductData, image_urls: (prev as NewProductData).image_urls.filter((_, i) => i !== index)}))}
-                                                className="absolute top-0 right-0 transform translate-x-1/2 -translate-y-1/2 bg-red-600 text-white rounded-full w-4 h-4 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
-                                            >
-                                                &times;
-                                            </button>
-                                        </div>
-                                    ))}
-                                    {currentFormData.image_urls.length === 0 && (
-                                        <p className="text-xs text-gray-400 p-2">Chưa có ảnh nào được tải lên.</p>
-                                    )}
+                <div className="fixed inset-0 z-50 bg-gray-900/60 backdrop-blur-sm flex justify-center items-center p-4">
+                    <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-5xl max-h-[95vh] overflow-y-auto p-10 relative">
+                        <button onClick={() => setIsFormModalOpen(false)} className="absolute top-6 right-6 text-gray-400 hover:text-gray-900 text-3xl">&times;</button>
+                        
+                        <h2 className="text-2xl font-black mb-8">{isEditing ? '🚀 Cập nhật sản phẩm' : '🎁 Thêm sản phẩm mới'}</h2>
+                        
+                        <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+                            {/* CỘT TRÁI (7/12): THÔNG TIN CƠ BẢN */}
+                            <div className="lg:col-span-7 space-y-6">
+                                <div>
+                                    <label className="block text-xs font-black text-gray-400 uppercase mb-2">Tên sản phẩm</label>
+                                    <input type="text" value={currentFormData.name} onChange={e => setCurrentFormData({...currentFormData, name: e.target.value})} required className="w-full bg-gray-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-indigo-500 font-medium text-sm" />
                                 </div>
-                            </div>
 
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-black text-gray-400 uppercase mb-2">Giá bán (₫)</label>
+                                        <input type="number" value={currentFormData.price} onChange={e => setCurrentFormData({...currentFormData, price: Number(e.target.value)})} required className="w-full bg-gray-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-indigo-500 font-medium text-sm" />
+                                    </div>
+                                    <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-100 flex flex-col justify-center">
+                                        <label className="block text-[10px] font-black text-indigo-400 uppercase">Tổng tồn kho</label>
+                                        <div className="text-xl font-black text-indigo-600">{getTotalStock(currentFormData.size_details)}</div>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-black text-gray-400 uppercase mb-2">Thương hiệu</label>
+                                        <input type="text" value={currentFormData.brand} onChange={e => setCurrentFormData({...currentFormData, brand: e.target.value})} className="w-full bg-gray-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-indigo-500 font-medium text-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black text-gray-400 uppercase mb-2">Chất liệu</label>
+                                        <input type="text" value={currentFormData.material} onChange={e => setCurrentFormData({...currentFormData, material: e.target.value})} className="w-full bg-gray-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-indigo-500 font-medium text-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black text-gray-400 uppercase mb-2">Xuất xứ</label>
+                                        <input type="text" value={currentFormData.origin} onChange={e => setCurrentFormData({...currentFormData, origin: e.target.value})} className="w-full bg-gray-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-indigo-500 font-medium text-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black text-gray-400 uppercase mb-2">Kiểu dáng</label>
+                                        <input type="text" value={currentFormData.design_style} onChange={e => setCurrentFormData({...currentFormData, design_style: e.target.value})} placeholder="Slim fit, oversize, dáng suông..." className="w-full bg-gray-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-indigo-500 font-medium text-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black text-gray-400 uppercase mb-2">Phong cách</label>
+                                        <input type="text" value={currentFormData.fashion_style} onChange={e => setCurrentFormData({...currentFormData, fashion_style: e.target.value})} placeholder="Công sở, tối giản, streetwear..." className="w-full bg-gray-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-indigo-500 font-medium text-sm" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black text-gray-400 uppercase mb-2">Màu sắc</label>
+                                        <input type="text" value={currentFormData.colors.join(', ')} onChange={e => {
+                                            const colors = e.target.value.split(',').map(color => color.trim()).filter(Boolean);
+                                            const nextStock = colors.reduce<ProductColorStock>((acc, color) => {
+                                                acc[color] = currentFormData.size_details[color] || (isNoSizeProduct ? { [NO_SIZE_LABEL]: 0 } : {});
+                                                return acc;
+                                            }, {});
+                                            setCurrentFormData({...currentFormData, colors, size_details: nextStock});
+                                        }} placeholder="Den, trang, be..." className="w-full bg-gray-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-indigo-500 font-medium text-sm" />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-black text-gray-400 uppercase mb-2">Mô tả</label>
+                                    <textarea rows={3} value={currentFormData.description} onChange={e => setCurrentFormData({...currentFormData, description: e.target.value})} className="w-full bg-gray-50 border-none rounded-2xl p-4 focus:ring-2 focus:ring-indigo-500 font-medium text-sm" />
+                                </div>
 
-                            {/* CHỌN LOẠI SẢN PHẨM (CHECKBOXES) */}
-                            <div className="mb-4">
-                                <label className="block text-gray-700 text-sm font-bold mb-2">Chọn Loại Sản Phẩm</label>
-                                <div className="grid grid-cols-2 md:grid-cols-3 gap-y-2 gap-x-4 p-3 border rounded-lg bg-gray-50 max-h-40 overflow-y-auto">
-                                    {ALL_CATEGORIES.map((cat) => (
-                                        <div key={cat.id} className="flex items-center">
-                                            <input
-                                                type="checkbox"
-                                                id={`category-form-${cat.id}`}
-                                                name="categories"
-                                                value={cat.id}
-                                                checked={currentFormData.categories.includes(cat.id)}
-                                                onChange={handleFormCategoryChange}
-                                                className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                                            />
-                                            <label htmlFor={`category-form-${cat.id}`} className="ml-2 text-sm text-gray-700 select-none">
-                                                {cat.name}
+                                {/* PHẦN CHỌN LOẠI SẢN PHẨM (ĐÃ THÊM LẠI) */}
+                                <div>
+                                    <label className="block text-xs font-black text-gray-400 uppercase mb-3 flex items-center gap-2">
+                                        Loại sản phẩm
+                                    </label>
+                                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                                        {categories.map((cat) => (
+                                            <label key={cat.id} className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer transition-all border ${currentFormData.categories.includes(cat.id) ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-gray-200 text-gray-600 hover:border-indigo-300'}`}>
+                                                <input
+                                                    type="checkbox"
+                                                    className="hidden"
+                                                    checked={currentFormData.categories.includes(cat.id)}
+                                                    onChange={() => handleCategoryChange(cat.id)}
+                                                />
+                                                <span className="text-[11px] font-bold truncate">{cat.name}</span>
                                             </label>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                            
-                            {/* Giá & Tồn Kho */}
-                            <div className="flex space-x-4 mb-4">
-                                <div className="flex-1">
-                                    <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="price">Giá <span className="text-red-500">*</span></label>
-                                    <input id="price" name="price" type="number" value={currentFormData.price} onChange={handleFormInputChange} min="0" required className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring focus:ring-indigo-300" />
-                                </div>
-                                <div className="flex-1">
-                                    <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="quantity">Tồn Kho <span className="text-red-500">*</span></label>
-                                    <input id="quantity" name="quantity" type="number" value={currentFormData.quantity} onChange={handleFormInputChange} min="0" required className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring focus:ring-indigo-300" />
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
 
-                            {/* Mô tả */}
-                            <div className="mb-6">
-                                <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="description">Mô tả</label>
-                                <textarea id="description" name="description" rows={3} value={currentFormData.description} onChange={handleFormInputChange} className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring focus:ring-indigo-300"></textarea>
-                            </div>
+                            {/* CỘT PHẢI (5/12): SIZE & ẢNH */}
+                            <div className="lg:col-span-5 space-y-8">
+                                {/* PHẦN SIZE */}
+                                <div className="bg-gray-900 rounded-[24px] p-6 text-white">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <label className="text-xs font-black text-gray-400 uppercase">Màu, kích thước & kho</label>
+                                        <button type="button" onClick={handleAddColorRow} className="bg-indigo-600 text-white p-1 rounded-lg hover:rotate-90 transition-all"><Plus size={18}/></button>
+                                    </div>
+                                    <div className="space-y-4 max-h-72 overflow-y-auto pr-2 custom-scrollbar">
+                                        {Object.entries(currentFormData.size_details).map(([color, sizes]) => (
+                                            <div key={color} className="bg-white/10 p-3 rounded-2xl border border-white/10">
+                                                <div className="flex items-center justify-between gap-3 mb-3">
+                                                    <input
+                                                        value={color}
+                                                        onChange={e => {
+                                                            const nextColor = e.target.value.trim();
+                                                            if (!nextColor || nextColor === color) return;
+                                                            setCurrentFormData(prev => {
+                                                                const nextDetails = { ...prev.size_details };
+                                                                nextDetails[nextColor] = nextDetails[color] || {};
+                                                                delete nextDetails[color];
+                                                                return {
+                                                                    ...prev,
+                                                                    colors: prev.colors.map(item => item === color ? nextColor : item),
+                                                                    size_details: nextDetails,
+                                                                };
+                                                            });
+                                                        }}
+                                                        className="w-full bg-transparent border-none focus:ring-0 text-sm font-black text-white"
+                                                    />
+                                                    {!isNoSizeProduct && <button type="button" onClick={() => handleAddSizeRow(color)} className="bg-white/10 text-white p-1 rounded-lg hover:bg-white/20"><Plus size={16}/></button>}
+                                                    <button type="button" onClick={() => handleRemoveColorRow(color)} className="text-red-400 hover:text-red-500"><Trash2 size={16}/></button>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    {Object.entries(sizes).map(([size, qty]) => (
+                                                        <div key={`${color}-${size}`} className="flex items-center gap-3 bg-black/20 p-2 rounded-xl">
+                                                            {!isNoSizeProduct ? (
+                                                                <select value={size} onChange={e => handleRenameSizeRow(color, size, e.target.value)} className="bg-transparent border-none text-xs font-bold focus:ring-0 text-white cursor-pointer">
+                                                                    {sizeOptions.map(s => <option key={s} value={s} className="text-black">{s}</option>)}
+                                                                </select>
+                                                            ) : (
+                                                                <span className="text-xs font-bold text-gray-300">Không size</span>
+                                                            )}
+                                                            <input type="number" min={0} value={qty} onChange={e => handleUpdateSizeQty(color, size, Number(e.target.value))} className="w-full bg-transparent border-none focus:ring-0 text-right font-black text-indigo-400" />
+                                                            <button type="button" onClick={() => handleRemoveSizeRow(color, size)} className="text-red-400 hover:text-red-500"><Trash2 size={16}/></button>
+                                                        </div>
+                                                    ))}
+                                                    {Object.keys(sizes).length === 0 && <p className="text-[10px] text-gray-500 italic text-center py-2">Chưa có size cho màu này</p>}
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {Object.keys(currentFormData.size_details).length === 0 && <p className="text-[10px] text-gray-500 italic text-center py-2">Chưa có màu nào</p>}
+                                    </div>
+                                </div>
 
-                            {/* Nút Thao Tác */}
-                            <div className="flex items-center justify-end">
-                                <button type="button" onClick={handleCloseFormModal} disabled={isUploading} className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline mr-2">Hủy</button>
-                                <button type="submit" disabled={isUploading || isLoading} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50">
-                                    {isUploading ? 'Đang tải ảnh...' : (isEditing ? 'Cập Nhật' : 'Thêm Sản Phẩm')}
+                                {/* PHẦN ẢNH */}
+                                <div>
+                                    <label className="block text-xs font-black text-gray-400 uppercase mb-4 tracking-widest">Bộ sưu tập ảnh ({currentFormData.image_urls.length})</label>
+                                    <div className="grid grid-cols-3 gap-3">
+                                        <label className="aspect-square bg-gray-50 border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:bg-indigo-50 hover:border-indigo-200 transition">
+                                            {isUploading ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-600"></div> : <Plus className="text-indigo-400" />}
+                                            <input type="file" className="hidden" onChange={handleFileChange} disabled={isUploading} />
+                                        </label>
+                                        {currentFormData.image_urls.map((url, idx) => (
+                                            <div key={idx} className="relative group aspect-square">
+                                                <img src={url} className="w-full h-full object-cover rounded-2xl border border-gray-100 shadow-sm" alt="" />
+                                                <button type="button" onClick={() => setCurrentFormData({...currentFormData, image_urls: currentFormData.image_urls.filter((_, i) => i !== idx)})} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition shadow-lg"><Trash2 size={12}/></button>
+                                                {idx === 0 && <span className="absolute bottom-1 left-1 bg-black/70 text-white text-[8px] px-2 py-0.5 rounded-md font-black uppercase shadow-sm">Bìa</span>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <button type="submit" className="w-full bg-indigo-600 text-white font-black py-5 rounded-2xl shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition active:scale-[0.98] uppercase tracking-widest text-sm">
+                                    Xác nhận lưu sản phẩm
                                 </button>
                             </div>
                         </form>
                     </div>
                 </div>
             )}
-            
-            {/* --- MODAL XEM CHI TIẾT (VIEW DETAILS) - ĐÃ CÓ SLIDER --- */}
-            {isDetailModalOpen && selectedProduct && (
-                <div className="fixed inset-0 z-50 bg-gray-900 bg-opacity-70 overflow-y-auto h-full w-full flex justify-center items-center">
-                    <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto transform transition-all duration-300">
-                        <div className="flex justify-between items-center border-b pb-3 mb-4">
-                            <h3 className="text-2xl font-bold text-gray-800">Chi Tiết Sản Phẩm: {selectedProduct.name}</h3>
-                            <button onClick={() => setIsDetailModalOpen(false)} className="text-gray-400 hover:text-gray-600 text-3xl leading-none">&times;</button>
-                        </div>
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            
-                            {/* Cột 1: IMAGE SLIDER (Gallery Ảnh) */}
-                            <div>
-                                <h4 className="text-lg font-semibold mb-2 text-gray-700">Ảnh ({selectedProduct.images.length > 0 ? currentImageIndex + 1 : 0}/{selectedProduct.images.length})</h4>
-                                <div className="relative border border-gray-200 rounded-lg overflow-hidden shadow-md h-64 flex items-center justify-center bg-gray-100">
-                                    
-                                    {/* Ảnh Hiển Thị */}
-                                    {selectedProduct.images.length > 0 ? (
-                                        <img 
-                                            src={selectedProduct.images[currentImageIndex].url} 
-                                            alt={`${selectedProduct.name} - Ảnh ${currentImageIndex + 1}`} 
-                                            className="object-contain w-full h-full transition duration-300"
-                                        />
-                                    ) : (
-                                        <p className="text-gray-500">Chưa có ảnh sản phẩm</p>
-                                    )}
-
-                                    {/* Nút Điều Hướng TRÁI */}
-                                    {selectedProduct.images.length > 1 && (
-                                        <button 
-                                            onClick={handlePrevImage}
-                                            className="absolute left-0 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-40 text-white p-2 rounded-r-lg hover:bg-opacity-70 transition focus:outline-none"
-                                        >
-                                            <ChevronLeft size={24} />
-                                        </button>
-                                    )}
-                                    
-                                    {/* Nút Điều Hướng PHẢI */}
-                                    {selectedProduct.images.length > 1 && (
-                                        <button 
-                                            onClick={handleNextImage}
-                                            className="absolute right-0 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-40 text-white p-2 rounded-l-lg hover:bg-opacity-70 transition focus:outline-none"
-                                        >
-                                            <ChevronRight size={24} />
-                                        </button>
-                                    )}
-                                </div>
-                                {/* Thêm thumbnail nhỏ dưới đây (Tùy chọn) */}
-                                <div className="flex mt-2 space-x-2 overflow-x-auto">
-                                    {selectedProduct.images.map((img, index) => (
-                                        <img
-                                            key={index}
-                                            src={img.url}
-                                            alt={`Thumbnail ${index + 1}`}
-                                            onClick={() => setCurrentImageIndex(index)}
-                                            className={`w-12 h-12 object-cover rounded cursor-pointer border-2 ${index === currentImageIndex ? 'border-indigo-500' : 'border-gray-300'}`}
-                                        />
-                                    ))}
-                                </div>
-
-                            </div>
-                            
-                            {/* Cột 2: Thông tin chi tiết */}
-                            <div className="space-y-3">
-                                <DetailItem label="ID" value={selectedProduct.id} />
-                                <DetailItem label="Giá" value={`${selectedProduct.price.toLocaleString('vi-VN')} ₫`} className="text-green-600 font-bold" />
-                                <DetailItem label="Tổng số lượng" value={selectedProduct.quantity} />
-                                <DetailItem label="Đã bán" value={selectedProduct.sold} />
-                                <DetailItem label="Còn lại" value={selectedProduct.remaining} className={selectedProduct.remaining! <= 10 ? 'text-red-600 font-bold' : 'text-green-600 font-bold'} />
-
-                                <div>
-                                    <p className="text-sm font-semibold text-gray-700 mb-1">Loại Sản Phẩm:</p>
-                                    <div className="flex flex-wrap gap-2">
-                                        {selectedProduct.categories?.map(c => (
-                                            <span key={c.id} className="bg-purple-100 text-purple-800 text-xs font-medium px-2 py-1 rounded-full shadow-sm">
-                                                {c.name}
-                                            </span>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Mô tả (Đầy đủ) */}
-                        <div className="mt-6 border-t pt-4">
-                            <h4 className="text-lg font-semibold mb-2 text-gray-700">Mô tả chi tiết</h4>
-                            <p className="text-gray-600 whitespace-pre-line">{selectedProduct.description || "Không có mô tả."}</p>
-                        </div>
-
-                        <div className="mt-6 flex justify-end">
-                            <button
-                                onClick={() => setIsDetailModalOpen(false)}
-                                className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition duration-200"
-                            >
-                                Đóng
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };
-
-// Component con hỗ trợ hiển thị chi tiết
-const DetailItem: React.FC<{ label: string; value: any; className?: string }> = ({ label, value, className = '' }) => (
-    <div className="flex justify-between border-b border-gray-100 py-1">
-        <span className="text-gray-500 text-sm">{label}:</span>
-        <span className={`text-gray-800 text-sm font-medium ${className}`}>{value}</span>
-    </div>
-);
 
 export default Products;
